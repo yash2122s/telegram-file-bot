@@ -1,16 +1,14 @@
-
 import os
 import logging
 import base64
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
 
-# Get the token from Replit Secrets
+# Get the token from environment variables (Render uses this)
 TELEGRAM_BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
 
 # --- Temporary "Database" ---
-# This dictionary will store our file references.
-# For a real bot, you should use a proper database like SQLite.
+# This dictionary stores file references in memory.
 file_database = {}
 file_counter = 0
 # -----------------------------
@@ -22,7 +20,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# This function now handles receiving files and creating deep links
 async def file_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global file_counter
     if not update.message:
@@ -41,40 +38,39 @@ async def file_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         file_id = update.message.video.file_id
         file_type = "video"
     else:
+        await update.message.reply_text("Please send a photo, document, or video.")
         return
 
-    # 1. Create a unique key for the file
+    # Create a unique key for the file
     file_counter += 1
     file_key = f"file_{file_counter}"
 
-    # 2. Store the file_id and its type in our database
+    # Store file_id and type
     file_database[file_key] = {"id": file_id, "type": file_type}
 
-    # 3. Base64 encode the key to use in the URL
+    # Encode the key for URL usage
     encoded_key = base64.urlsafe_b64encode(file_key.encode()).decode()
 
-    # 4. Get the bot's username to build the link
+    # Get bot username for deep link
     bot_username = (await context.bot.get_me()).username
 
-    # 5. Create the deep link and send it back
+    # Create deep link
     deep_link = f"https://t.me/{bot_username}?start={encoded_key}"
     await update.message.reply_text(
         f"✅ Deep link generated!\n\nShare this link to give others access to the file:\n{deep_link}"
     )
 
-# This function now handles users clicking the deep link
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.args:
         try:
-            # 1. Decode the key from the link
+            # Decode key from link
             encoded_key = context.args[0]
             decoded_key = base64.urlsafe_b64decode(encoded_key).decode()
 
-            # 2. Look up the file in our database
+            # Lookup file in database
             file_data = file_database.get(decoded_key)
 
             if file_data:
-                # 3. Send the correct file type based on the stored info
                 file_id = file_data["id"]
                 file_type = file_data["type"]
 
@@ -87,15 +83,15 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     await context.bot.send_video(chat_id=update.effective_chat.id, video=file_id)
             else:
                 await update.message.reply_text("Sorry, this link is invalid or has expired.")
-        
+
         except Exception as e:
             logger.error(f"Error processing deep link: {e}")
             await update.message.reply_text("This link appears to be broken.")
     else:
-        # Normal /start command
-        await update.message.reply_text("Hello! Send me a file to generate a shareable deep link.")
+        await update.message.reply_text(
+            "👋 Hello! Send me a photo, document, or video to generate a shareable deep link."
+        )
 
-# Main function to run the bot
 def main():
     if not TELEGRAM_BOT_TOKEN:
         print("!!! ERROR: TELEGRAM_BOT_TOKEN not found. !!!")
